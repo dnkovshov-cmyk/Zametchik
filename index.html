@@ -1661,8 +1661,9 @@ html{background:var(--bg)}
    Все данные хранятся локально (localStorage).
    Каждое изменение данных создаёт снимок для отката.
    ===================================================== */
-const APP_VERSION = '1.74.5';
+const APP_VERSION = '1.74.6';
 const CHANGELOG = [
+  {v:'1.74.6', date:'24.11.2026', text:'Усиленная диагностика импорта: тост показывает шаг сбоя — запрос ссылки, скачивание файла или разбор — и переводит сетевые ошибки на понятный язык («нет связи с сервером»).'},
   {v:'1.74.5', date:'24.11.2026', text:'Диагностика ошибки чтения бэкапа с Диска: сообщение теперь говорит, что именно не так — пустой файл, не JSON (с размером и началом содержимого) или в файле нет задач и заметок. Заодно игнорируется BOM в начале файла.'},
   {v:'1.74.4', date:'24.11.2026', text:'Погода на фоне ожила: вместо кружочков — настоящие снежинки (шесть лучей с отростками, медленно вращаются), капли дождя чуть толще при ливне, осенние листья в форме листа с прожилкой, весенние лепестки — маленькие цветочки. Фигуры рисуются заранее и кэшируются, чтобы не тормозить.'},
   {v:'1.74.3', date:'24.11.2026', text:'При открытии приложения первым показывается раздел «Главная» (а не Задачи): стартовый активный вид перенесён в HTML, при загрузке вызывается switchView(home). Задачи по-прежнему доступны вкладкой, из меню или кликом по заголовку.'},
@@ -5184,13 +5185,18 @@ async function ydExport(silent){
 }
 async function ydImport(silent){
   if(!yd.token){ toast('Сначала вставьте OAuth-токен'); return; }
+  let step = '';
   try{
+    step = 'запрос ссылки';
     let r = await fetch(YD_API + '/resources/download?path=' + encodeURIComponent(yd.path), {headers: ydHeaders()});
     if(r.status === 404){ if(!silent) toast('На Диске ещё нет бэкапа по этому пути'); return; }
     if(!r.ok){ if(!silent) ydErr(r.status); return; }
+    step = 'чтение ссылки';
     const j = await r.json();
+    step = 'скачивание файла';
     r = await fetch(j.href);
     if(!r.ok){ if(!silent) toast('Не удалось скачать файл (' + r.status + ')'); return; }
+    step = 'разбор файла';
     let txt = await r.text();
     if(txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
     let parsed;
@@ -5207,7 +5213,11 @@ async function ydImport(silent){
     data.localStamp = Date.parse(parsed.exportedAt) || Date.now();
     await persistData(true); applySettings(); renderAll(); updateStatusbar(); renderRecipeCatsList();
     toast(silent ? 'Данные обновлены с Диска' : 'Данные загружены с Диска. Снимок «до» — в разделе «Версии»');
-  }catch(e){ if(!silent) toast('Не удалось прочитать бэкап с Диска' + (e && e.message ? ': ' + e.message : '')); }
+  }catch(e){
+    let m = e && e.message ? String(e.message) : '';
+    if(/failed to fetch|load failed|networkerror/i.test(m)) m = 'нет связи с сервером (сеть или блокировка)';
+    if(!silent) toast('Не удалось прочитать бэкап с Диска' + (step ? ' [' + step + ']' : '') + (m ? ': ' + m : ''));
+  }
 }
 async function ydPullOnStart(force){
   try{
