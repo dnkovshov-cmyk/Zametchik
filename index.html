@@ -1661,8 +1661,9 @@ html{background:var(--bg)}
    Все данные хранятся локально (localStorage).
    Каждое изменение данных создаёт снимок для отката.
    ===================================================== */
-const APP_VERSION = '1.74.4';
+const APP_VERSION = '1.74.5';
 const CHANGELOG = [
+  {v:'1.74.5', date:'24.11.2026', text:'Диагностика ошибки чтения бэкапа с Диска: сообщение теперь говорит, что именно не так — пустой файл, не JSON (с размером и началом содержимого) или в файле нет задач и заметок. Заодно игнорируется BOM в начале файла.'},
   {v:'1.74.4', date:'24.11.2026', text:'Погода на фоне ожила: вместо кружочков — настоящие снежинки (шесть лучей с отростками, медленно вращаются), капли дождя чуть толще при ливне, осенние листья в форме листа с прожилкой, весенние лепестки — маленькие цветочки. Фигуры рисуются заранее и кэшируются, чтобы не тормозить.'},
   {v:'1.74.3', date:'24.11.2026', text:'При открытии приложения первым показывается раздел «Главная» (а не Задачи): стартовый активный вид перенесён в HTML, при загрузке вызывается switchView(home). Задачи по-прежнему доступны вкладкой, из меню или кликом по заголовку.'},
   {v:'1.74.2', date:'24.11.2026', text:'Клик по заголовку теперь открывает новый пустой раздел «Главная» (а не Задачи). Пока это заглушка: содержимое главной страницы ещё в планах. На «Главной» ни одна вкладка не подсвечена, заголовок шапки показывает «Главная».'},
@@ -5190,16 +5191,23 @@ async function ydImport(silent){
     const j = await r.json();
     r = await fetch(j.href);
     if(!r.ok){ if(!silent) toast('Не удалось скачать файл (' + r.status + ')'); return; }
-    const parsed = JSON.parse(await r.text());
+    let txt = await r.text();
+    if(txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
+    let parsed;
+    try{ parsed = JSON.parse(txt); }
+    catch(pe){
+      const head = (txt || '').slice(0, 40).replace(/\s+/g, ' ');
+      throw new Error(txt ? 'файл не JSON, размер ' + txt.length + ' симв., начало: «' + head + '…»' : 'файл пустой');
+    }
     const d = parsed.data || parsed;
-    if(!d || !Array.isArray(d.tasks) || !Array.isArray(d.notes)) throw 0;
+    if(!d || !Array.isArray(d.tasks) || !Array.isArray(d.notes)) throw new Error('в файле нет задач и заметок');
     snapshotNow('перед импортом с Диска');
     data = d;
     normalizeData();
     data.localStamp = Date.parse(parsed.exportedAt) || Date.now();
     await persistData(true); applySettings(); renderAll(); updateStatusbar(); renderRecipeCatsList();
     toast(silent ? 'Данные обновлены с Диска' : 'Данные загружены с Диска. Снимок «до» — в разделе «Версии»');
-  }catch(e){ if(!silent) toast('Не удалось прочитать бэкап с Диска'); }
+  }catch(e){ if(!silent) toast('Не удалось прочитать бэкап с Диска' + (e && e.message ? ': ' + e.message : '')); }
 }
 async function ydPullOnStart(force){
   try{
